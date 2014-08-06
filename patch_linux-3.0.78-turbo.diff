@@ -1,0 +1,97 @@
+diff -uprN -x '*_reg_safe.h' -x '*.diff' linux-3.0.78/include/linux/tcp.h devel/linux-3.0.78/include/linux/tcp.h
+--- linux-3.0.78/include/linux/tcp.h	2013-05-11 23:38:25.000000000 +0300
++++ devel/linux-3.0.78/include/linux/tcp.h	2013-07-17 12:03:15.750451460 +0300
+@@ -388,6 +388,10 @@ struct tcp_sock {
+ 	u32	tso_deferred;
+ 	u32	bytes_acked;	/* Appropriate Byte Counting - RFC3465 */
+ 
++	/* custom additions, for tcp flow length dependent */
++	u32	last_retrans;
++	u8	turbo;
++
+ 	/* from STCP, retrans queue hinting */
+ 	struct sk_buff* lost_skb_hint;
+ 	struct sk_buff *scoreboard_skb_hint;
+diff -uprN -x '*_reg_safe.h' -x '*.diff' linux-3.0.78/Makefile devel/linux-3.0.78/Makefile
+--- linux-3.0.78/Makefile	2013-05-11 23:38:25.000000000 +0300
++++ devel/linux-3.0.78/Makefile	2013-07-17 12:03:15.860067790 +0300
+@@ -1,7 +1,7 @@
+ VERSION = 3
+ PATCHLEVEL = 0
+ SUBLEVEL = 78
+-EXTRAVERSION =
++EXTRAVERSION = -turbo
+ NAME = Sneaky Weasel
+ 
+ # *DOCUMENTATION*
+diff -uprN -x '*_reg_safe.h' -x '*.diff' linux-3.0.78/net/ipv4/tcp_input.c devel/linux-3.0.78/net/ipv4/tcp_input.c
+--- linux-3.0.78/net/ipv4/tcp_input.c	2013-05-11 23:38:25.000000000 +0300
++++ devel/linux-3.0.78/net/ipv4/tcp_input.c	2013-07-17 12:13:18.665208480 +0300
+@@ -841,8 +841,10 @@ void tcp_enter_cwr(struct sock *sk, cons
+ 		tp->undo_marker = 0;
+ 		if (set_ssthresh)
+ 			tp->snd_ssthresh = icsk->icsk_ca_ops->ssthresh(sk);
++		/* custom additions, for tcp flow length dependent */
++		tp->last_retrans = tp->total_retrans;
+ 		tp->snd_cwnd = min(tp->snd_cwnd,
+-				   tcp_packets_in_flight(tp) + 1U);
++			tcp_packets_in_flight(tp) + 1U);
+ 		tp->snd_cwnd_cnt = 0;
+ 		tp->high_seq = tp->snd_nxt;
+ 		tp->snd_cwnd_stamp = tcp_time_stamp;
+@@ -2606,6 +2608,9 @@ static void tcp_update_scoreboard(struct
+  */
+ static inline void tcp_moderate_cwnd(struct tcp_sock *tp)
+ {
++	/* custom additions, for tcp flow length dependent */
++	if (tp->turbo)
++		return;
+ 	tp->snd_cwnd = min(tp->snd_cwnd,
+ 			   tcp_packets_in_flight(tp) + tcp_max_burst(tp));
+ 	tp->snd_cwnd_stamp = tcp_time_stamp;
+@@ -2634,8 +2639,8 @@ static void tcp_cwnd_down(struct sock *s
+ 
+ 		if (decr && tp->snd_cwnd > tcp_cwnd_min(sk))
+ 			tp->snd_cwnd -= decr;
+-
+-		tp->snd_cwnd = min(tp->snd_cwnd, tcp_packets_in_flight(tp) + 1);
++		tp->snd_cwnd = min(tp->snd_cwnd,
++			tcp_packets_in_flight(tp) + 1U);
+ 		tp->snd_cwnd_stamp = tcp_time_stamp;
+ 	}
+ }
+@@ -2844,10 +2849,17 @@ static int tcp_try_undo_loss(struct sock
+ static inline void tcp_complete_cwr(struct sock *sk)
+ {
+ 	struct tcp_sock *tp = tcp_sk(sk);
+-	/* Do not moderate cwnd if it's already undone in cwr or recovery */
+-	if (tp->undo_marker && tp->snd_cwnd > tp->snd_ssthresh) {
+-		tp->snd_cwnd = tp->snd_ssthresh;
+-		tp->snd_cwnd_stamp = tcp_time_stamp;
++	if (tp->turbo) {
++		tp->snd_ssthresh = tp->snd_ssthresh -
++					(tp->total_retrans - tp->last_retrans);
++	} else {
++		/* Do not moderate cwnd if it's already undone in cwr
++		*  or recovery
++		*/
++		if (tp->undo_marker && tp->snd_cwnd > tp->snd_ssthresh) {
++			tp->snd_cwnd = tp->snd_ssthresh;
++			tp->snd_cwnd_stamp = tcp_time_stamp;
++		}
+ 	}
+ 	tcp_ca_event(sk, CA_EVENT_COMPLETE_CWR);
+ }
+diff -uprN -x '*_reg_safe.h' -x '*.diff' linux-3.0.78/net/ipv4/tcp_ipv4.c devel/linux-3.0.78/net/ipv4/tcp_ipv4.c
+--- linux-3.0.78/net/ipv4/tcp_ipv4.c	2013-05-11 23:38:25.000000000 +0300
++++ devel/linux-3.0.78/net/ipv4/tcp_ipv4.c	2013-07-17 12:03:16.060434271 +0300
+@@ -1870,6 +1870,9 @@ static int tcp_v4_init_sock(struct sock 
+ 	 * efficiently to them.  -DaveM
+ 	 */
+ 	tp->snd_cwnd = 2;
++	/* custom additions, for tcp flow length dependent */
++	tp->last_retrans = 0;
++	tp->turbo = 0;
+ 
+ 	/* See draft-stevens-tcpca-spec-01 for discussion of the
+ 	 * initialization of these values.

@@ -1,0 +1,30 @@
+Linux kernel patch for FLD_TCP, flow length dependent tcp congestion control
+
+This package includes linux kernel patch for (FLD_TCP) flow length dependent tcp
+congestion control algorithm and module for FLD_TCP. 
+
+REQUIREMENTS
+
+1. Confirms to requirements needed to compile linux-3.0.78
+
+APPLYING PATCH
+1. Go to root kernel source directory i.e. linux-3.0.78
+   ( Download from www.kernel.org)
+2. Run "patch -p1 -i path_to_patch/patch_linux-3.0.78-turbo.diff"
+
+BUILDING CUSTOM KERNEL
+
+1. Build linux kernel,install modules and kernel
+2. Reboot to new custom kernel
+
+COMPILING FLD_TCP congestion control module
+
+1. Go to FLD_TCP directory included in this package
+2. Run "make" to compile module
+3. Run "sudo insmod fld_tcp.ko" to insert module to kernel
+4. Run "sudo rmmod fld_tcp.ko" to remove module from kernel
+
+SELECTING FLD_TCP conegstion control algorithm
+1. Run "sudo sysctl net.ipv4.tcp_congestion_control=fld" to select FLD_TCP
+2. Run "sudo sysctl net.ipv4.tcp_congestion_control=xxx" to deselect or remove
+   FLD_TCP,xxx=default or any other available congestion control algorithm
