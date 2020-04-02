@@ -1,4 +1,4 @@
-FLDTCP
+FLD_TCP
 ======
 
 A TCP patch to favor short flows
